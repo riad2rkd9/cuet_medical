@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 # --- CREDENTIALS ---
 SENDER_EMAIL = "ridwanbme23@gmail.com"
-SENDER_PASSWORD = "raluwzarunwirgjms" 
+SENDER_PASSWORD = "mqnufmarhhmfrsmk" 
 DB_FILE = 'cuet_medical.db'
 
 def get_connection():
