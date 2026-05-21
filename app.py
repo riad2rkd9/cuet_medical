@@ -16,9 +16,16 @@ def get_connection():
 
 def init_db():
     with get_connection() as conn:
+        # If you ever change columns, it's safer to DROP and CREATE for a student project
+        # Or just ensure the table exists with the exact 7 columns we need
+        conn.execute('DROP TABLE IF EXISTS students') # Force refresh to fix your error
         conn.execute('''CREATE TABLE IF NOT EXISTS students (
-                        sid TEXT PRIMARY KEY, name TEXT, bg TEXT, 
-                        phone TEXT, allergies TEXT, history TEXT, 
+                        sid TEXT PRIMARY KEY, 
+                        name TEXT, 
+                        bg TEXT, 
+                        phone TEXT, 
+                        allergies TEXT, 
+                        history TEXT, 
                         last_donation TEXT)''')
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
@@ -38,9 +45,7 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
         return True
-    except Exception as e:
-        st.error(f"Mail failed: {e}")
-        return False
+    except: return False
 
 st.set_page_config(page_title="CUET Medical", page_icon="🏥")
 init_db()
@@ -52,7 +57,7 @@ tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 R
 # --- TAB 1: EMERGENCY LOOKUP ---
 with tab1:
     st.subheader("Patient ID Lookup")
-    sid_search = st.text_input("Enter Student ID (Ex: 2311029, 1911029)")
+    sid_search = st.text_input("Enter Student ID (Ex: 2311029)")
     if sid_search:
         with get_connection() as conn:
             res = conn.execute("SELECT * FROM students WHERE sid = ?", (sid_search,)).fetchone()
@@ -94,7 +99,7 @@ with tab2:
                     if not receiver_contact:
                         st.error("Please enter your contact number first!")
                     else:
-                        with st.spinner("Sending emergency alert..."):
+                        with st.spinner("Sending email..."):
                             if send_donor_email(f"u{d_id}@student.cuet.ac.bd", d_name, target_bg, receiver_contact):
                                 st.success(f"Email sent to {d_name}!")
     else:
@@ -104,8 +109,8 @@ with tab2:
 with tab3:
     st.subheader("Student Data Entry")
     with st.form("reg_form", clear_on_submit=True):
-        st.write("Example IDs: 2311029, 2311020, 1911029")
-        f_sid = st.text_input("Student ID (Must be 7 digits or more)")
+        st.write("Example IDs: 2311029, 1911029")
+        f_sid = st.text_input("Student ID (At least 7 digits)")
         f_name = st.text_input("Full Name")
         f_bg = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
         f_phone = st.text_input("Your Phone Number")
@@ -116,17 +121,14 @@ with tab3:
         f_last_picker = st.date_input("If yes, select last donation date:")
         
         if st.form_submit_button("Submit / Update Record"):
-            # ID VALIDATION
             if len(f_sid) < 7:
-                st.error("❌ ID too short. Please enter a valid ID (Ex: 2311029).")
-            elif not f_sid.isdigit():
-                st.error("❌ Student ID must be numeric.")
+                st.error("❌ ID must be at least 7 digits.")
             elif not f_name or not f_phone:
-                st.error("❌ Name and Phone are required.")
+                st.error("❌ Please fill in the name and phone.")
             else:
-                # Store "Never" if they haven't donated
                 final_date = str(f_last_picker) if has_donated == "Yes" else "Never"
                 with get_connection() as conn:
+                    # This now matches the 7 columns in init_db
                     conn.execute("INSERT OR REPLACE INTO students VALUES (?,?,?,?,?,?,?)", 
                                 (f_sid, f_name, f_bg, f_phone, f_all, f_his, final_date))
-                st.success(f"Record for {f_name} saved! Donation: {final_date}")
+                st.success(f"Record for {f_name} saved!")
