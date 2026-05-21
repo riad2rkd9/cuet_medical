@@ -3,9 +3,8 @@ import sqlite3
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, timedelta
-import os
 
-# --- EMAIL CONFIGURATION ---
+# --- UPDATED EMAIL CREDENTIALS ---
 SENDER_EMAIL = "ridwanbme23@gmail.com"
 SENDER_PASSWORD = "raluwzarunwirgjms" 
 
@@ -22,7 +21,6 @@ def init_db():
                         phone TEXT, allergies TEXT, history TEXT, 
                         last_donation TEXT)''')
 
-# UPDATED EMAIL FUNCTION TO INCLUDE RECEIVER CONTACT
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
     content = (f"Dear {donor_name},\n\n"
@@ -40,7 +38,9 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
         return True
-    except: return False
+    except Exception as e:
+        st.error(f"Mail failed: {e}")
+        return False
 
 st.set_page_config(page_title="CUET Medical", page_icon="🏥")
 init_db()
@@ -49,10 +49,10 @@ st.title("🏥 CUET Student Medical Portal")
 
 tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 Register/Update"])
 
-# TAB 1: EMERGENCY LOOKUP
+# --- TAB 1: EMERGENCY LOOKUP ---
 with tab1:
     st.subheader("Patient ID Lookup")
-    sid_search = st.text_input("Enter Student ID (7 Digits)", key="search_id")
+    sid_search = st.text_input("Enter Student ID (Ex: 2311029, 1911029)")
     if sid_search:
         with get_connection() as conn:
             res = conn.execute("SELECT * FROM students WHERE sid = ?", (sid_search,)).fetchone()
@@ -64,13 +64,11 @@ with tab1:
         else:
             st.error("No record found.")
 
-# TAB 2: DONOR LIST (With Contact Inclusion)
+# --- TAB 2: DONOR LIST ---
 with tab2:
     st.subheader("Blood Match Finder")
     target_bg = st.selectbox("Select Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
-    
-    # NEW: Receiver provides their contact info here
-    receiver_contact = st.text_input("Enter your phone number (so the donor can call you):")
+    receiver_contact = st.text_input("Enter your phone number (to include in email):")
     
     st.divider()
     
@@ -78,10 +76,9 @@ with tab2:
         donors = conn.execute("SELECT sid, name, last_donation FROM students WHERE bg = ?", (target_bg,)).fetchall()
     
     if donors:
-        st.write(f"Found {len(donors)} donors for {target_bg}:")
         for d_id, d_name, d_date in donors:
             is_eligible = True
-            if d_date and d_date not in ["Never", "None"]:
+            if d_date != "Never" and d_date is not None:
                 try:
                     last_dt = datetime.strptime(d_date, "%Y-%m-%d")
                     if datetime.now() - last_dt < timedelta(days=120):
@@ -95,39 +92,41 @@ with tab2:
             if is_eligible:
                 if col2.button(f"Email {d_id}", key=f"btn_{d_id}"):
                     if not receiver_contact:
-                        st.error("Please enter your phone number above before sending the email!")
+                        st.error("Please enter your contact number first!")
                     else:
-                        with st.spinner("Sending mail..."):
+                        with st.spinner("Sending emergency alert..."):
                             if send_donor_email(f"u{d_id}@student.cuet.ac.bd", d_name, target_bg, receiver_contact):
-                                st.success(f"Emergency Alert sent to {d_name}!")
-                            else:
-                                st.error("Email failed. Check your App Password.")
+                                st.success(f"Email sent to {d_name}!")
     else:
-        st.write("No donors found for this group.")
+        st.info("No donors registered for this blood group.")
 
-# TAB 3: REGISTRATION & UPDATES
+# --- TAB 3: REGISTRATION & UPDATES ---
 with tab3:
     st.subheader("Student Data Entry")
     with st.form("reg_form", clear_on_submit=True):
-        f_sid = st.text_input("Student ID (7 digits)")
+        st.write("Example IDs: 2311029, 2311020, 1911029")
+        f_sid = st.text_input("Student ID (Must be 7 digits or more)")
         f_name = st.text_input("Full Name")
         f_bg = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
         f_phone = st.text_input("Your Phone Number")
-        f_all = st.text_area("Allergies (Write 'None' if none)")
-        f_his = st.text_area("Medical History (Write 'None' if none)")
+        f_all = st.text_area("Allergies", value="None")
+        f_his = st.text_area("Medical History", value="None")
+        
         has_donated = st.radio("Have you ever donated blood?", ["No, never", "Yes"])
-        f_last = "Never"
-        if has_donated == "Yes":
-            f_last = st.date_input("Last Blood Donation Date")
+        f_last_picker = st.date_input("If yes, select last donation date:")
         
         if st.form_submit_button("Submit / Update Record"):
-            if len(f_sid) != 7 or not f_sid.isdigit():
-                st.error("❌ Student ID must be 7 numeric digits.")
+            # ID VALIDATION
+            if len(f_sid) < 7:
+                st.error("❌ ID too short. Please enter a valid ID (Ex: 2311029).")
+            elif not f_sid.isdigit():
+                st.error("❌ Student ID must be numeric.")
             elif not f_name or not f_phone:
-                st.error("❌ Please fill in the required details.")
+                st.error("❌ Name and Phone are required.")
             else:
-                final_date = str(f_last) if has_donated == "Yes" else "Never"
+                # Store "Never" if they haven't donated
+                final_date = str(f_last_picker) if has_donated == "Yes" else "Never"
                 with get_connection() as conn:
                     conn.execute("INSERT OR REPLACE INTO students VALUES (?,?,?,?,?,?,?)", 
                                 (f_sid, f_name, f_bg, f_phone, f_all, f_his, final_date))
-                st.success(f"Record for {f_name} updated successfully!")
+                st.success(f"Record for {f_name} saved! Donation: {final_date}")
