@@ -6,9 +6,8 @@ from datetime import datetime, timedelta
 import os
 
 # --- EMAIL CONFIGURATION ---
-# It's better to use st.secrets for security, but you can hardcode for testing:
-SENDER_EMAIL = "mdridwanulislam09@gmail.com"
-SENDER_PASSWORD = "your-16-digit-app-password" # REPLACE THIS
+SENDER_EMAIL = "ridwanbme23@gmail.com"
+SENDER_PASSWORD = "raluwzarunwirgjms" 
 
 # --- DATABASE SETUP ---
 DB_FILE = 'cuet_medical.db'
@@ -21,38 +20,39 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS students (
                         sid TEXT PRIMARY KEY, name TEXT, bg TEXT, 
                         phone TEXT, allergies TEXT, history TEXT, 
-                        last_donation TEXT, renewal TEXT)''')
+                        last_donation TEXT)''')
 
-# --- EMAIL DISPATCHER ---
-def send_donor_email(to_email, name, blood_group):
+# UPDATED EMAIL FUNCTION TO INCLUDE RECEIVER CONTACT
+def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
-    msg.set_content(f"Dear {name},\n\nThis is an EMERGENCY request from CUET Medical Center. "
-                    f"A patient urgently needs {blood_group} blood. Please contact us immediately if you can help.\n\n- CUET Medical Team")
+    content = (f"Dear {donor_name},\n\n"
+               f"This is an EMERGENCY blood request from CUET Medical Center.\n\n"
+               f"A patient urgently needs {blood_group} blood. "
+               f"If you are able to donate, please contact the receiver immediately at: {receiver_phone}\n\n"
+               f"Your help could save a life.\n\n- CUET Medical Team")
+    
+    msg.set_content(content)
     msg['Subject'] = f"🚨 URGENT: {blood_group} Blood Needed"
     msg['From'] = SENDER_EMAIL
     msg['To'] = to_email
-
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
         return True
-    except Exception as e:
-        st.error(f"Failed to send mail: {e}")
-        return False
+    except: return False
 
-# --- APP INTERFACE ---
-st.set_page_config(page_title="CUET Medical", page_icon="🏥", layout="centered")
+st.set_page_config(page_title="CUET Medical", page_icon="🏥")
 init_db()
 
 st.title("🏥 CUET Student Medical Portal")
 
-tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 Register"])
+tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 Register/Update"])
 
 # TAB 1: EMERGENCY LOOKUP
 with tab1:
     st.subheader("Patient ID Lookup")
-    sid_search = st.text_input("Enter Student ID (e.g. 2311029)")
+    sid_search = st.text_input("Enter Student ID (7 Digits)", key="search_id")
     if sid_search:
         with get_connection() as conn:
             res = conn.execute("SELECT * FROM students WHERE sid = ?", (sid_search,)).fetchone()
@@ -60,21 +60,28 @@ with tab1:
             st.warning(f"**Patient:** {res[1].upper()} | **Blood:** {res[2]}")
             st.info(f"**Allergies:** {res[4]}\n\n**History:** {res[5]}")
             st.write(f"**Contact:** {res[3]}")
+            st.write(f"**Last Donation:** {res[6]}")
         else:
             st.error("No record found.")
 
-# TAB 2: DONOR LIST & MAIL
+# TAB 2: DONOR LIST (With Contact Inclusion)
 with tab2:
     st.subheader("Blood Match Finder")
-    target_bg = st.selectbox("Select Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
+    target_bg = st.selectbox("Select Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
+    
+    # NEW: Receiver provides their contact info here
+    receiver_contact = st.text_input("Enter your phone number (so the donor can call you):")
+    
+    st.divider()
+    
     with get_connection() as conn:
         donors = conn.execute("SELECT sid, name, last_donation FROM students WHERE bg = ?", (target_bg,)).fetchall()
     
     if donors:
+        st.write(f"Found {len(donors)} donors for {target_bg}:")
         for d_id, d_name, d_date in donors:
-            # Check 120 days eligibility
             is_eligible = True
-            if d_date and d_date != "None" and d_date != "None":
+            if d_date and d_date not in ["Never", "None"]:
                 try:
                     last_dt = datetime.strptime(d_date, "%Y-%m-%d")
                     if datetime.now() - last_dt < timedelta(days=120):
@@ -83,29 +90,44 @@ with tab2:
             
             col1, col2 = st.columns([3, 1])
             status_text = "✅ Available" if is_eligible else "⏳ Recently Donated"
-            col1.write(f"**{d_name}** (u{d_id}@student.cuet.ac.bd) - {status_text}")
+            col1.write(f"**{d_name}** ({status_text})")
             
             if is_eligible:
-                if col2.button(f"Email {d_id}"):
-                    if send_donor_email(f"u{d_id}@student.cuet.ac.bd", d_name, target_bg):
-                        st.success(f"Mail sent to u{d_id}!")
+                if col2.button(f"Email {d_id}", key=f"btn_{d_id}"):
+                    if not receiver_contact:
+                        st.error("Please enter your phone number above before sending the email!")
+                    else:
+                        with st.spinner("Sending mail..."):
+                            if send_donor_email(f"u{d_id}@student.cuet.ac.bd", d_name, target_bg, receiver_contact):
+                                st.success(f"Emergency Alert sent to {d_name}!")
+                            else:
+                                st.error("Email failed. Check your App Password.")
     else:
-        st.write("No donors found.")
+        st.write("No donors found for this group.")
 
-# TAB 3: REGISTRATION
+# TAB 3: REGISTRATION & UPDATES
 with tab3:
-    st.subheader("New Student Entry")
+    st.subheader("Student Data Entry")
     with st.form("reg_form", clear_on_submit=True):
-        f_sid = st.text_input("Student ID")
+        f_sid = st.text_input("Student ID (7 digits)")
         f_name = st.text_input("Full Name")
-        f_bg = st.selectbox("Blood Group ", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
-        f_phone = st.text_input("Phone Number")
-        f_all = st.text_area("Allergies")
-        f_his = st.text_area("Medical History")
-        f_last = st.date_input("Last Donation Date", value=None)
+        f_bg = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
+        f_phone = st.text_input("Your Phone Number")
+        f_all = st.text_area("Allergies (Write 'None' if none)")
+        f_his = st.text_area("Medical History (Write 'None' if none)")
+        has_donated = st.radio("Have you ever donated blood?", ["No, never", "Yes"])
+        f_last = "Never"
+        if has_donated == "Yes":
+            f_last = st.date_input("Last Blood Donation Date")
         
-        if st.form_submit_button("Save Record"):
-            with get_connection() as conn:
-                conn.execute("INSERT OR REPLACE INTO students VALUES (?,?,?,?,?,?,?,?)", 
-                            (f_sid, f_name, f_bg, f_phone, f_all, f_his, str(f_last), "N/A"))
-            st.success(f"Registered u{f_sid}@student.cuet.ac.bd")
+        if st.form_submit_button("Submit / Update Record"):
+            if len(f_sid) != 7 or not f_sid.isdigit():
+                st.error("❌ Student ID must be 7 numeric digits.")
+            elif not f_name or not f_phone:
+                st.error("❌ Please fill in the required details.")
+            else:
+                final_date = str(f_last) if has_donated == "Yes" else "Never"
+                with get_connection() as conn:
+                    conn.execute("INSERT OR REPLACE INTO students VALUES (?,?,?,?,?,?,?)", 
+                                (f_sid, f_name, f_bg, f_phone, f_all, f_his, final_date))
+                st.success(f"Record for {f_name} updated successfully!")
