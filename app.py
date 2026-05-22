@@ -7,7 +7,7 @@ from email.message import EmailMessage
 # --- EMAIL SETTINGS ---
 # Note: If you still see 'BadCredentials', you must generate a NEW App Password in Gmail.
 SENDER_EMAIL = "ridwanbme23@gmail.com"
-SENDER_PASSWORD = "raluwzarunwirgjms" 
+SENDER_PASSWORD = "ifhb iydp mdvj wrug" 
 
 st.set_page_config(page_title="CUET Medical Portal", page_icon="🏥", layout="wide")
 
