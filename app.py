@@ -83,9 +83,15 @@ with tab2:
             if st.button(f"Send_MAil {clean_sid}", key=f"mail_{clean_sid}"):
                 if receiver_phone:
                     # UPDATED DOMAIN: student.cuet.ac.bd
-                    target_mail = f"u{clean_sid}@student.cuet.ac.bd"
-                    if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
-                        st.success(f"Notification sent to {target_mail}")
+                    # --- TAB 2: FIND DONORS ---
+with tab2:
+    # ... selection logic ...
+    if st.button(f"E-Mail {clean_sid}", key=f"mail_{clean_sid}"):
+        if receiver_phone:
+            # FIX: Using the exact "studnet" domain you mentioned
+            target_mail = f"u{clean_sid}@studnet.cuet.ac.bd" 
+            if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
+                st.success(f"Sent to {target_mail}")
                 else: st.error("Please enter your phone number.")
 
 # --- TAB 3: REGISTER/UPDATE ---
