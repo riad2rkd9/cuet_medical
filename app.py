@@ -5,7 +5,7 @@ import smtplib
 from email.message import EmailMessage
 
 # --- EMAIL SETTINGS ---
-# Note: If you still see 'BadCredentials', you must generate a NEW App Password in Gmail.
+# Ensure you have a fresh App Password from Google
 SENDER_EMAIL = "ridwanbme23@gmail.com"
 SENDER_PASSWORD = "ifhb iydp mdvj wrug" 
 
@@ -16,26 +16,31 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     try:
-        # Load fresh data
         data = conn.read(ttl=0)
         if data is not None and not data.empty:
-            # FIX: Global cleaner for the ".0" float bug
+            # 1. FIX SID: Force string and remove .0 decimals
             data['sid'] = data['sid'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            
+            # 2. FIX PHONE: Remove .0 and ensure leading '0'
+            data['phone'] = data['phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            data['phone'] = data['phone'].apply(lambda x: '0' + x if not x.startswith('0') and x != 'nan' else x)
+            
+            # 3. FIX nan: Replace empty spreadsheet cells with "None"
+            data = data.fillna("None").replace("nan", "None")
         return data
     except Exception:
         return pd.DataFrame(columns=["sid", "name", "bg", "phone", "allergies", "history", "last donation"])
 
-# Initialize cleaned data
+# Load data
 df = get_data()
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
-    msg.set_content(f"Dear {donor_name},\n\nURGENT: A patient needs {blood_group} blood. Please contact the receiver at: {receiver_phone}")
+    msg.set_content(f"Dear {donor_name},\n\nURGENT: A patient needs {blood_group} blood. Please contact: {receiver_phone}")
     msg['Subject'] = f"🚨 CUET Blood Request: {blood_group}"
     msg['From'] = SENDER_EMAIL
     msg['To'] = to_email
     try:
-        # Using Port 587 with STARTTLS for better reliability
         server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
@@ -49,16 +54,14 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
 st.title("🏥 CUET Student Medical Portal")
 tab1, tab2, tab3 = st.tabs(["🚨 Patient Search", "🩸 Find Donors", "📝 Register/Update"])
 
-# --- TAB 1: PATIENT SEARCH (FIXED SEARCH BUG) ---
+# --- TAB 1: PATIENT SEARCH ---
 with tab1:
     st.subheader("Search Patient Records")
-    sid_query = st.text_input("Enter Student ID to Search", key="search_input").strip()
+    sid_query = st.text_input("Enter Student ID", key="search_input").strip()
     
     if sid_query:
         if not df.empty:
-            # Match against the cleaned SID string
             result = df[df['sid'] == sid_query]
-            
             if not result.empty:
                 row = result.iloc[0]
                 st.success(f"### Profile Found: {row['name']}")
@@ -73,10 +76,10 @@ with tab1:
             else:
                 st.error(f"No record found for ID: {sid_query}")
 
-# --- TAB 2: FIND DONORS (FIXED DOMAIN & EMAIL) ---
+# --- TAB 2: FIND DONORS ---
 with tab2:
     target_bg = st.selectbox("Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
-    receiver_phone = st.text_input("Your Phone Number (for call):")
+    receiver_phone = st.text_input("Your Contact Number:")
     
     if not df.empty:
         donors = df[df['bg'] == target_bg]
@@ -84,50 +87,56 @@ with tab2:
             for _, row in donors.iterrows():
                 clean_sid = row['sid']
                 st.write(f"**{row['name']}** (ID: {clean_sid})")
-                
                 if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
                     if receiver_phone:
-                        # EXACT DOMAIN: studnet.cuet.ac.bd
-                        target_mail = f"u{clean_sid}@student.cuet.ac.bd"
+                        # Exact domain format uID@studnet.cuet.ac.bd
+                        target_mail = f"u{clean_sid}@studnet.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
-                            st.success(f"Notification sent to {target_mail}")
-                    else: 
-                        st.error("Please enter your contact number.")
-        else:
-            st.write("No donors currently found for this group.")
+                            st.success(f"Mail sent to {target_mail}")
+                    else: st.error("Phone required!")
 
-# --- TAB 3: REGISTER/UPDATE (SAME ID UPDATES PROFILE) ---
+# --- TAB 3: REGISTER/UPDATE ---
 with tab3:
     st.subheader("Update Your Profile")
-    with st.form("reg_form", clear_on_submit=True):
-        f_sid = st.text_input("Student ID").strip()
+    
+    # We create the form container
+    with st.form("registration_form", clear_on_submit=True):
+        f_sid = st.text_input("Student ID (e.g., 2311029)").strip()
         f_name = st.text_input("Full Name")
         f_bg = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
         f_phone = st.text_input("Phone Number")
         f_all = st.text_area("Allergies", "None")
         f_his = st.text_area("Medical History", "None")
         
-        # Fixed Donation Selection
-        donation_status = st.radio("Donation Info:", ["Never Donated", "Select Date"])
+        # --- FIXED DATE BAR LOGIC ---
+        # Note: In Streamlit forms, the UI only updates after a SUBMIT.
+        # To show/hide things instantly, the radio must be OUTSIDE the form, 
+        # BUT for your use case, we will use a radio that defaults to 
+        # showing the date picker if they select "Yes".
+        
+        has_donated = st.radio("Have you donated blood before?", ["No", "Yes"])
+        
+        # If they pick Yes, the date input appears inside the form
         f_date = "Never"
-        if donation_status == "Select Date":
-            f_date = str(st.date_input("When was your last donation?"))
+        if has_donated == "Yes":
+            f_date = str(st.date_input("Last Donation Date"))
 
-        if st.form_submit_button("Submit Data"):
+        submitted = st.form_submit_button("Submit to Database")
+        
+        if submitted:
             if f_sid and f_name:
-                user_id = str(f_sid).strip()
-                new_data = pd.DataFrame([{
-                    "sid": user_id, "name": f_name, "bg": f_bg, "phone": f_phone,
+                new_row = pd.DataFrame([{
+                    "sid": f_sid, "name": f_name, "bg": f_bg, "phone": f_phone,
                     "allergies": f_all, "history": f_his, "last donation": f_date
                 }])
-                
                 try:
-                    # Logic: Remove the old ID row and append the new one
                     fresh_df = get_data()
-                    updated_df = pd.concat([fresh_df[fresh_df['sid'] != user_id], new_data], ignore_index=True)
-                    
-                    conn.update(data=updated_df)
-                    st.success(f"Profile for {user_id} updated successfully!")
+                    # Profile Update: Delete old row for this ID before adding new one
+                    final_df = pd.concat([fresh_df[fresh_df['sid'] != f_sid], new_row], ignore_index=True)
+                    conn.update(data=final_df)
+                    st.success("Successfully updated!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Update failed: {e}")
+                    st.error(f"Error: {e}")
+            else:
+                st.error("Please fill ID and Name.")
