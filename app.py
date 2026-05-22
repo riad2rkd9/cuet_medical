@@ -3,7 +3,6 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import smtplib
 from email.message import EmailMessage
-from datetime import datetime, timedelta
 
 # --- EMAIL SETTINGS ---
 SENDER_EMAIL = "ridwanbme23@gmail.com"
@@ -16,7 +15,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     try:
-        # ttl=0 is vital so search doesn't show "No record found" for new users
+        # ttl=0 is mandatory to see new registrations immediately
         return conn.read(ttl=0)
     except Exception:
         return pd.DataFrame(columns=["sid", "name", "bg", "phone", "allergies", "history", "last donation"])
@@ -30,76 +29,93 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg['From'] = SENDER_EMAIL
     msg['To'] = to_email
     try:
-        # Changed to SMTP (Port 587) with STARTTLS for better compatibility
+        # Using Port 587 (TLS) for better reliability on Streamlit Cloud
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls() 
+            server.starttls()
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
         return True
     except Exception as e:
-        st.error(f"Mail Error: {e}")
+        st.error(f"Mail failed: {e}")
         return False
 
 st.title("🏥 CUET Student Medical Portal")
-tab1, tab2, tab3 = st.tabs(["🚨 Patient Search", "🩸 Find Donors", "📝 Register/Update"])
+tab1, tab2, tab3 = st.tabs(["🚨 Emergency Medical Search", "🩸 Find Donors", "📝 Register/Update"])
 
 # --- TAB 1: PATIENT SEARCH (FIXED) ---
 with tab1:
-    st.subheader("Search Patient Records")
-    sid_search = st.text_input("Enter Student ID to Search", key="search_box")
-    if sid_search:
-        if not df.empty:
-            # FIX: Forces everything to String so 2311020 matches "2311020"
-            df['sid_str'] = df['sid'].astype(str).str.strip()
-            res = df[df['sid_str'] == str(sid_search).strip()]
-            
-            if not res.empty:
-                row = res.iloc[0]
-                st.success(f"Record Found: {row['name']}")
-                st.info(f"**Blood:** {row['bg']} | **Phone:** {row['phone']}")
-                st.warning(f"**History:** {row['history']} | **Allergies:** {row['allergies']}")
-            else:
-                st.error("No record found. Check ID or Register in the 📝 tab.")
-
-# --- TAB 2: FIND DONORS ---
-with tab2:
-    # (Donor display logic remains same, it was already working for you)
-    target_bg = st.selectbox("Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
-    receiver_contact = st.text_input("Your Phone:")
-    donors = df[df['bg'] == target_bg] if not df.empty else pd.DataFrame()
+    st.subheader("Search Student Records")
+    sid_query = st.text_input("Enter Student ID", key="search_input")
     
-    for _, row in donors.iterrows():
-        st.write(f"**{row['name']}**")
-        if st.button(f"Notify {row['sid']}", key=f"mail_{row['sid']}"):
-            if receiver_contact:
-                # Assuming student email follows uSID@student.cuet.ac.bd
-                target_mail = f"u{str(row['sid']).strip()}@student.cuet.ac.bd"
-                if send_donor_email(target_mail, row['name'], target_bg, receiver_contact):
-                    st.success("Mail Sent!")
-            else: st.error("Enter your phone number first!")
+    if sid_query:
+        if not df.empty:
+            # FIX: Force everything to string and remove decimals (.0) often added by Excel/Pandas
+            df_search = df.copy()
+            df_search['sid'] = df_search['sid'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            
+            result = df_search[df_search['sid'] == str(sid_query).strip()]
+            
+            if not result.empty:
+                row = result.iloc[0]
+                st.success(f"### Profile Found: {row['name']}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric("Blood Group", row['bg'])
+                    st.write(f"**Phone:** {row['phone']}")
+                with c2:
+                    st.error(f"**Allergies:** {row['allergies']}")
+                    st.error(f"**Medical History:** {row['history']}")
+                st.info(f"**Last Donation:** {row['last donation']}")
+            else:
+                st.error(f"No record found for ID: {sid_query}")
 
-# --- TAB 3: REGISTER/UPDATE ---
+# --- TAB 2: DONORS ---
+with tab2:
+    target_bg = st.selectbox("Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
+    receiver_phone = st.text_input("Your Phone Number:")
+    
+    if not df.empty:
+        donors = df[df['bg'] == target_bg]
+        if not donors.empty:
+            for _, row in donors.iterrows():
+                st.write(f"**{row['name']}** (Last Donation: {row['last donation']})")
+                if st.button(f"E-mail {row['sid']}", key=f"mail_{row['sid']}"):
+                    if receiver_phone:
+                        target_mail = f"u{str(row['sid']).split('.')[0]}@student.cuet.ac.bd"
+                        if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
+                            st.success("Notification Email Sent!")
+                    else: st.error("Please enter your contact number first.")
+
+# --- TAB 3: REGISTER/UPDATE (FIXED DONATION OPTION) ---
 with tab3:
+    st.subheader("Update Your Profile")
     with st.form("reg_form"):
         f_sid = st.text_input("Student ID")
-        f_name = st.text_input("Name")
+        f_name = st.text_input("Full Name")
         f_bg = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
-        f_phone = st.text_input("Phone")
+        f_phone = st.text_input("Phone Number")
         f_all = st.text_area("Allergies", "None")
-        f_his = st.text_area("History", "None")
-        has_donated = st.radio("Donated before?", ["No", "Yes"])
+        f_his = st.text_area("Medical History", "None")
         
-        # This only renders the date input if they say "Yes"
+        # ONE OPTION: None or Date
+        donation_status = st.radio("Last Donation Info:", ["Never Donated", "Select Date"])
         f_date = "Never"
-        if has_donated == "Yes":
-            f_date = str(st.date_input("Last Donation Date"))
+        if donation_status == "Select Date":
+            f_date = str(st.date_input("When was your last donation?"))
 
-        if st.form_submit_button("Submit"):
+        if st.form_submit_button("Submit Data"):
             if f_sid and f_name:
-                new_row = pd.DataFrame([{"sid": f_sid, "name": f_name, "bg": f_bg, "phone": f_phone, 
-                                         "allergies": f_all, "history": f_his, "last donation": f_date}])
-                # Filter old ID, concat new, and update
-                updated_df = pd.concat([df[df['sid'].astype(str) != str(f_sid)], new_row], ignore_index=True)
-                conn.update(data=updated_df)
-                st.success("Done!")
-                st.rerun()
+                clean_sid = str(f_sid).strip()
+                new_data = pd.DataFrame([{
+                    "sid": clean_sid, "name": f_name, "bg": f_bg, "phone": f_phone,
+                    "allergies": f_all, "history": f_his, "last donation": f_date
+                }])
+                
+                try:
+                    # Update Logic: Filter out old record and add new
+                    updated_df = pd.concat([df[df['sid'].astype(str).str.replace(r'\.0$', '', regex=True) != clean_sid], new_data], ignore_index=True)
+                    conn.update(data=updated_df)
+                    st.success("Database Updated Successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Update failed: {e}")
