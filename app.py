@@ -5,25 +5,22 @@ import smtplib
 from email.message import EmailMessage
 from datetime import datetime, timedelta
 
-# --- EMAIL CREDENTIALS ---
+# --- EMAIL SETTINGS ---
 SENDER_EMAIL = "ridwanbme23@gmail.com"
 SENDER_PASSWORD = "raluwzarunwirgjms" 
 
 st.set_page_config(page_title="CUET Medical Portal", page_icon="🏥")
 
 # --- GOOGLE SHEETS CONNECTION ---
-# This connection relies on the [connections.gsheets] section in your Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     try:
-        # ttl=0 forces the app to fetch fresh data every time
+        # Fetch fresh data every time (ttl=0)
         return conn.read(ttl=0)
     except Exception:
-        # Return an empty DataFrame with correct headers if the sheet is unreadable
-        return pd.DataFrame(columns=["sid", "name", "bg", "phone", "allergies", "history", "last_donation"])
-
-df = get_data()
+        # If sheet is empty or unreadable, return empty DF with correct headers
+        return pd.DataFrame(columns=["sid", "name", "bg", "phone", "allergies", "history", "last donation"])
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
@@ -43,27 +40,27 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     except: 
         return False
 
-st.title("🏥 CUET Student Medical Portal")
+# Load existing data
+df = get_data()
 
+st.title("🏥 CUET Student Medical Portal")
 tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 Register/Update"])
 
-# --- TAB 1: SEARCH ---
+# --- TAB 1: EMERGENCY SEARCH ---
 with tab1:
     sid_search = st.text_input("Search ID (Ex: 2311029)")
     if sid_search:
         if not df.empty:
-            res = df[df['sid'].astype(str) == str(sid_search)]
+            res = df[df['sid'].astype(str) == str(sid_search).strip()]
             if not res.empty:
                 row = res.iloc[0]
                 st.warning(f"**Patient:** {str(row['name']).upper()} | **Blood:** {row['bg']}")
                 st.info(f"**Allergies:** {row['allergies']}\n\n**History:** {row['history']}")
-                st.write(f"**Contact:** {row['phone']} | **Last Donation:** {row['last_donation']}")
+                st.write(f"**Contact:** {row['phone']} | **Last Donation:** {row['last donation']}")
             else: 
                 st.error("No record found.")
-        else:
-            st.info("Database is currently empty.")
 
-# --- TAB 2: DONORS ---
+# --- TAB 2: FIND DONORS ---
 with tab2:
     target_bg = st.selectbox("Select Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
     receiver_contact = st.text_input("Enter your phone number for donors to call:")
@@ -73,7 +70,7 @@ with tab2:
         if not donors.empty:
             for _, row in donors.iterrows():
                 eligible = True
-                d_date = str(row['last_donation'])
+                d_date = str(row['last donation'])
                 if d_date != "Never":
                     try:
                         if datetime.now() - datetime.strptime(d_date, "%Y-%m-%d") < timedelta(days=120):
@@ -91,13 +88,14 @@ with tab2:
                                 st.success("Mail Sent!")
                     else: 
                         st.error("Enter phone number first!")
-        else:
-            st.write("No donors found for this blood group.")
 
-# --- TAB 3: REGISTER ---
+# --- TAB 3: REGISTER OR UPDATE PROFILE ---
 with tab3:
+    st.subheader("Register / Update Profile")
+    st.markdown("> **Note:** If your Student ID is already in our system, this will update your existing details.")
+    
     with st.form("reg_form", clear_on_submit=True):
-        f_sid = st.text_input("Student ID")
+        f_sid = st.text_input("Student ID (Required)")
         f_name = st.text_input("Full Name")
         f_bg = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
         f_phone = st.text_input("Phone Number")
@@ -106,37 +104,39 @@ with tab3:
         has_donated = st.radio("Donated blood before?", ["No, never", "Yes"])
         f_last_picker = st.date_input("Last donation date")
         
-        if st.form_submit_button("Submit to Permanent Database"):
+        if st.form_submit_button("Submit to Database"):
             if f_sid and f_name and f_phone:
-                final_date = str(f_last_picker) if has_donated == "Yes" else "Never"
-                
-                # New entry - column names MUST match your sheet headers EXACTLY
+                # 1. Clean the ID and prepare new row
+                clean_sid = str(f_sid).strip()
                 new_row = pd.DataFrame([{
-                    "sid": str(f_sid), 
+                    "sid": clean_sid, 
                     "name": f_name, 
                     "bg": f_bg, 
                     "phone": str(f_phone), 
                     "allergies": f_all, 
                     "history": f_his, 
-                    "last_donation": final_date
+                    "last donation": str(f_last_picker) if has_donated == "Yes" else "Never"
                 }])
                 
                 try:
-                    # Refresh data before update to avoid overwriting others
+                    # 2. Get the latest data from the sheet
                     current_df = conn.read(ttl=0)
                     
                     if current_df is not None and not current_df.empty:
-                        # Remove existing record with same ID then add new one
-                        updated_df = pd.concat([current_df[current_df['sid'].astype(str) != str(f_sid)], new_row], ignore_index=True)
+                        # 3. Filter OUT the old entry if it exists (Profile Update Logic)
+                        # This ensures the ID remains unique
+                        updated_df = pd.concat([
+                            current_df[current_df['sid'].astype(str) != clean_sid], 
+                            new_row
+                        ], ignore_index=True)
                     else:
                         updated_df = new_row
                     
-                    # Push update to Google Sheets
+                    # 4. Save back to Google Sheets
                     conn.update(data=updated_df)
-                    st.success("✅ Successfully registered!")
+                    st.success(f"✅ Success! Profile for {clean_sid} has been registered/updated.")
                     st.rerun()
                 except Exception as e:
-                    # If this still shows "Public Spreadsheet", your Secrets are not set up with triple quotes
                     st.error(f"Save failed: {e}")
             else:
                 st.error("Please fill in Student ID, Name, and Phone Number.")
