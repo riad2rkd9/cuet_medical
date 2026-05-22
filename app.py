@@ -48,12 +48,14 @@ st.title("🏥 CUET Student Medical Portal")
 tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 Register/Update"])
 
 # --- TAB 1: EMERGENCY SEARCH ---
+# --- TAB 1: EMERGENCY SEARCH ---
 with tab1:
     sid_search = st.text_input("Search ID (Ex: 2311029)")
     if sid_search:
         if not df.empty:
-            # FIX: Convert both to string to ensure search matches
+            # FIX: Force the sheet column (sid) and the input to both be cleaned Strings
             res = df[df['sid'].astype(str).str.strip() == str(sid_search).strip()]
+            
             if not res.empty:
                 row = res.iloc[0]
                 st.warning(f"**Patient:** {str(row['name']).upper()} | **Blood:** {row['bg']}")
@@ -61,7 +63,6 @@ with tab1:
                 st.write(f"**Contact:** {row['phone']} | **Last Donation:** {row['last donation']}")
             else: 
                 st.error("No record found. Check ID or Register in the 📝 tab.")
-
 # --- TAB 2: FIND DONORS ---
 with tab2:
     target_bg = st.selectbox("Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
