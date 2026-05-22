@@ -12,13 +12,18 @@ SENDER_PASSWORD = "raluwzarunwirgjms"
 st.set_page_config(page_title="CUET Medical Portal", page_icon="🏥")
 
 # --- GOOGLE SHEETS CONNECTION ---
+# Uses the secrets you saved in the Streamlit Dashboard
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     try:
+        # ttl=0 ensures we always get the newest data from the sheet
         return conn.read(ttl=0)
     except:
         return pd.DataFrame()
+
+# Fetch data silently at start
+df = get_data()
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
@@ -35,12 +40,10 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
         return True
-    except: return False
+    except: 
+        return False
 
 st.title("🏥 CUET Student Medical Portal")
-
-# Fetch data silently
-df = get_data()
 
 tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 Register/Update"])
 
@@ -66,16 +69,19 @@ with tab2:
     receiver_contact = st.text_input("Enter your phone number for donors to call:")
     
     if not df.empty:
+        # Match donors by blood group
         donors = df[df['bg'] == target_bg]
         if not donors.empty:
             for _, row in donors.iterrows():
                 eligible = True
                 d_date = str(row['last_donation'])
+                # Basic 120-day eligibility check
                 if d_date != "Never":
                     try:
                         if datetime.now() - datetime.strptime(d_date, "%Y-%m-%d") < timedelta(days=120):
                             eligible = False
-                    except: pass
+                    except: 
+                        pass
                 
                 c1, c2 = st.columns([3, 1])
                 status = "✅ Available" if eligible else "⏳ Recently Donated"
@@ -85,9 +91,10 @@ with tab2:
                         with st.spinner("Sending email..."):
                             if send_donor_email(f"u{row['sid']}@student.cuet.ac.bd", row['name'], target_bg, receiver_contact):
                                 st.success("Mail Sent!")
-                    else: st.error("Enter phone number first!")
+                    else: 
+                        st.error("Enter phone number first!")
         else:
-            st.write("No donors found for this group.")
+            st.write("No donors found for this blood group.")
 
 # --- TAB 3: REGISTER ---
 with tab3:
@@ -102,16 +109,21 @@ with tab3:
         f_last_picker = st.date_input("Last donation date")
         
         if st.form_submit_button("Submit"):
-            if len(f_sid) >= 7 and f_name and f_phone:
+            if f_sid and f_name and f_phone:
                 final_date = str(f_last_picker) if has_donated == "Yes" else "Never"
                 
-                # Update logic
+                # New entry must match lowercase headers in Sheet
                 new_row = pd.DataFrame([{
-                    "sid": str(f_sid), "name": f_name, "bg": f_bg, 
-                    "phone": f_phone, "allergies": f_all, 
-                    "history": f_his, "last_donation": final_date
+                    "sid": str(f_sid), 
+                    "name": f_name, 
+                    "bg": f_bg, 
+                    "phone": str(f_phone), 
+                    "allergies": f_all, 
+                    "history": f_his, 
+                    "last_donation": final_date
                 }])
                 
+                # Update existing or append new
                 if not df.empty:
                     updated_df = pd.concat([df[df['sid'].astype(str) != str(f_sid)], new_row], ignore_index=True)
                 else:
@@ -119,9 +131,9 @@ with tab3:
                 
                 try:
                     conn.update(data=updated_df)
-                    st.toast("Success! Record updated.") # Toast is smaller/cleaner than the big green bar
+                    st.toast("✅ Success! Record updated.") 
                     st.rerun()
-                except:
-                    st.error("Error saving to Sheet. Check your connection.")
+                except Exception as e:
+                    st.error(f"Error saving: {e}")
             else:
-                st.error("Fill ID, Name, and Phone.")
+                st.error("Please fill in ID, Name, and Phone Number.")
