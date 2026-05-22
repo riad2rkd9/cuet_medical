@@ -81,7 +81,7 @@ with tab2:
                 st.write(f"**{row['name']}** (Last Donation: {row['last donation']})")
                 if st.button(f"E-mail {row['sid']}", key=f"mail_{row['sid']}"):
                     if receiver_phone:
-                        target_mail = f"u{str(row['sid']).split('.')[0]}@student.cuet.ac.bd"
+                        target_mail = f"u{str(row['sid'])}@student.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
                             st.success("Notification Email Sent!")
                     else: st.error("Please enter your contact number first.")
