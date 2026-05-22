@@ -88,7 +88,7 @@ with tab2:
                 if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
                     if receiver_phone:
                         # EXACT DOMAIN: studnet.cuet.ac.bd
-                        target_mail = f"u{clean_sid}@studnet.cuet.ac.bd"
+                        target_mail = f"u{clean_sid}@student.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
                             st.success(f"Notification sent to {target_mail}")
                     else: 
