@@ -1,28 +1,22 @@
 import streamlit as st
-import sqlite3
+from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, timedelta
 
-# --- CREDENTIALS ---
+# --- EMAIL CREDENTIALS ---
 SENDER_EMAIL = "ridwanbme23@gmail.com"
-SENDER_PASSWORD = "mqnufmarhhmfrsmk" 
-DB_FILE = 'cuet_medical.db'
+SENDER_PASSWORD = "raluwzarunwirgjms" 
 
-def get_connection():
-    return sqlite3.connect(DB_FILE)
+st.set_page_config(page_title="CUET Medical Portal", page_icon="🏥")
 
-def init_db():
-    with get_connection() as conn:
-        # Tables stay forever unless you manually delete the .db file
-        conn.execute('''CREATE TABLE IF NOT EXISTS students (
-                        sid TEXT PRIMARY KEY, 
-                        name TEXT, 
-                        bg TEXT, 
-                        phone TEXT, 
-                        allergies TEXT, 
-                        history TEXT, 
-                        last_donation TEXT)''')
+# --- GOOGLE SHEETS CONNECTION ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def get_data():
+    # ttl=0 ensures we always get the latest data from the sheet
+    return conn.read(ttl=0)
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
@@ -41,65 +35,95 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
         return True
     except: return False
 
-st.set_page_config(page_title="CUET Medical", page_icon="🏥")
-init_db()
-
 st.title("🏥 CUET Student Medical Portal")
+st.success("Connected to Google Sheets: Data is now PERMANENT.")
 
 tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 Register/Update"])
+
+# Load data from Google Sheets
+try:
+    df = get_data()
+except Exception as e:
+    st.error("Could not read Google Sheet. Make sure headers (sid, name, etc.) are in Row 1.")
+    df = pd.DataFrame()
 
 # --- TAB 1: SEARCH ---
 with tab1:
     sid_search = st.text_input("Search ID (Ex: 2311029)")
-    if sid_search:
-        with get_connection() as conn:
-            res = conn.execute("SELECT * FROM students WHERE sid = ?", (sid_search,)).fetchone()
-        if res:
-            st.warning(f"**Patient:** {res[1].upper()} | **Blood:** {res[2]}")
-            st.info(f"**Allergies:** {res[4]}\n\n**History:** {res[5]}")
-            st.write(f"**Contact:** {res[3]} | **Last Donation:** {res[6]}")
-        else: st.error("No record found.")
+    if sid_search and not df.empty:
+        # Convert SID to string for matching
+        res = df[df['sid'].astype(str) == str(sid_search)]
+        if not res.empty:
+            row = res.iloc[0]
+            st.warning(f"**Patient:** {str(row['name']).upper()} | **Blood:** {row['bg']}")
+            st.info(f"**Allergies:** {row['allergies']}\n\n**History:** {row['history']}")
+            st.write(f"**Contact:** {row['phone']} | **Last Donation:** {row['last_donation']}")
+        else: st.error("No record found in the database.")
 
 # --- TAB 2: DONORS ---
 with tab2:
-    target_bg = st.selectbox("Select Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
-    receiver_contact = st.text_input("Enter your phone number:")
-    with get_connection() as conn:
-        donors = conn.execute("SELECT sid, name, last_donation FROM students WHERE bg = ?", (target_bg,)).fetchall()
+    target_bg = st.selectbox("Select Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
+    receiver_contact = st.text_input("Enter your phone number for donors to call:")
     
-    for d_id, d_name, d_date in donors:
-        eligible = True
-        if d_date != "Never":
-            try:
-                if datetime.now() - datetime.strptime(d_date, "%Y-%m-%d") < timedelta(days=120):
-                    eligible = False
-            except: pass
-        
-        c1, c2 = st.columns([3, 1])
-        c1.write(f"**{d_name}** ({'✅ Available' if eligible else '⏳ Recently Donated'})")
-        if eligible and c2.button(f"Email {d_id}"):
-            if receiver_contact:
-                if send_donor_email(f"u{d_id}@student.cuet.ac.bd", d_name, target_bg, receiver_contact):
-                    st.success("Mail Sent!")
-            else: st.error("Enter your phone number first!")
+    if not df.empty:
+        donors = df[df['bg'] == target_bg]
+        if not donors.empty:
+            for _, row in donors.iterrows():
+                eligible = True
+                d_date = str(row['last_donation'])
+                if d_date != "Never":
+                    try:
+                        if datetime.now() - datetime.strptime(d_date, "%Y-%m-%d") < timedelta(days=120):
+                            eligible = False
+                    except: pass
+                
+                c1, c2 = st.columns([3, 1])
+                status = "✅ Available" if eligible else "⏳ Recently Donated"
+                c1.write(f"**{row['name']}** ({status})")
+                if eligible and c2.button(f"Email {row['sid']}", key=f"btn_{row['sid']}"):
+                    if receiver_contact:
+                        with st.spinner("Sending emergency mail..."):
+                            if send_donor_email(f"u{row['sid']}@student.cuet.ac.bd", row['name'], target_bg, receiver_contact):
+                                st.success(f"Mail Sent to {row['name']}!")
+                    else: st.error("Please enter your phone number first!")
+        else: st.info("No donors found for this blood group.")
 
-# --- TAB 3: REGISTER ---
+# --- TAB 3: REGISTER/UPDATE ---
 with tab3:
     with st.form("reg_form", clear_on_submit=True):
-        f_sid = st.text_input("Student ID (min 7 digits)")
+        st.write("Example IDs: 2311029, 1911029")
+        f_sid = st.text_input("Student ID (at least 7 digits)")
         f_name = st.text_input("Full Name")
-        f_bg = st.selectbox("Blood Group ", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
+        f_bg = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
         f_phone = st.text_input("Phone Number")
         f_all = st.text_area("Allergies", value="None")
         f_his = st.text_area("Medical History", value="None")
-        has_donated = st.radio("Donated before?", ["No, never", "Yes"])
+        has_donated = st.radio("Donated blood before?", ["No, never", "Yes"])
         f_last_picker = st.date_input("Last donation date")
         
-        if st.form_submit_button("Submit"):
+        if st.form_submit_button("Submit to Permanent Database"):
             if len(f_sid) >= 7 and f_name and f_phone:
                 final_date = str(f_last_picker) if has_donated == "Yes" else "Never"
-                with get_connection() as conn:
-                    conn.execute("INSERT OR REPLACE INTO students VALUES (?,?,?,?,?,?,?)", 
-                                (f_sid, f_name, f_bg, f_phone, f_all, f_his, final_date))
-                st.success("Record Saved!")
-            else: st.error("Please fill all fields (ID must be 7+ digits).")
+                
+                new_entry = pd.DataFrame([{
+                    "sid": str(f_sid), 
+                    "name": f_name, 
+                    "bg": f_bg, 
+                    "phone": f_phone, 
+                    "allergies": f_all, 
+                    "history": f_his, 
+                    "last_donation": final_date
+                }])
+                
+                # Remove old entry if updating, then add new one
+                if not df.empty:
+                    df = df[df['sid'].astype(str) != str(f_sid)]
+                
+                updated_df = pd.concat([df, new_entry], ignore_index=True)
+                
+                # Push back to Google Sheets
+                conn.update(data=updated_df)
+                st.success(f"Record for {f_name} is now saved FOREVER in Google Sheets!")
+                st.balloons()
+                st.rerun()
+            else: st.error("Please fill in ID (7+ digits), Name, and Phone.")
