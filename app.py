@@ -15,8 +15,10 @@ st.set_page_config(page_title="CUET Medical Portal", page_icon="🏥")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
-    # ttl=0 ensures we always get the latest data from the sheet
-    return conn.read(ttl=0)
+    try:
+        return conn.read(ttl=0)
+    except:
+        return pd.DataFrame()
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
@@ -36,29 +38,27 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     except: return False
 
 st.title("🏥 CUET Student Medical Portal")
-st.success("Connected to Google Sheets: Data is now PERMANENT.")
+
+# Fetch data silently
+df = get_data()
 
 tab1, tab2, tab3 = st.tabs(["🚨 Emergency Search", "🩸 Find Donors", "📝 Register/Update"])
-
-# Load data from Google Sheets
-try:
-    df = get_data()
-except Exception as e:
-    st.error("Could not read Google Sheet. Make sure headers (sid, name, etc.) are in Row 1.")
-    df = pd.DataFrame()
 
 # --- TAB 1: SEARCH ---
 with tab1:
     sid_search = st.text_input("Search ID (Ex: 2311029)")
-    if sid_search and not df.empty:
-        # Convert SID to string for matching
-        res = df[df['sid'].astype(str) == str(sid_search)]
-        if not res.empty:
-            row = res.iloc[0]
-            st.warning(f"**Patient:** {str(row['name']).upper()} | **Blood:** {row['bg']}")
-            st.info(f"**Allergies:** {row['allergies']}\n\n**History:** {row['history']}")
-            st.write(f"**Contact:** {row['phone']} | **Last Donation:** {row['last_donation']}")
-        else: st.error("No record found in the database.")
+    if sid_search:
+        if not df.empty:
+            res = df[df['sid'].astype(str) == str(sid_search)]
+            if not res.empty:
+                row = res.iloc[0]
+                st.warning(f"**Patient:** {str(row['name']).upper()} | **Blood:** {row['bg']}")
+                st.info(f"**Allergies:** {row['allergies']}\n\n**History:** {row['history']}")
+                st.write(f"**Contact:** {row['phone']} | **Last Donation:** {row['last_donation']}")
+            else: 
+                st.error("No record found.")
+        else:
+            st.info("Database is currently empty.")
 
 # --- TAB 2: DONORS ---
 with tab2:
@@ -82,17 +82,17 @@ with tab2:
                 c1.write(f"**{row['name']}** ({status})")
                 if eligible and c2.button(f"Email {row['sid']}", key=f"btn_{row['sid']}"):
                     if receiver_contact:
-                        with st.spinner("Sending emergency mail..."):
+                        with st.spinner("Sending email..."):
                             if send_donor_email(f"u{row['sid']}@student.cuet.ac.bd", row['name'], target_bg, receiver_contact):
-                                st.success(f"Mail Sent to {row['name']}!")
-                    else: st.error("Please enter your phone number first!")
-        else: st.info("No donors found for this blood group.")
+                                st.success("Mail Sent!")
+                    else: st.error("Enter phone number first!")
+        else:
+            st.write("No donors found for this group.")
 
-# --- TAB 3: REGISTER/UPDATE ---
+# --- TAB 3: REGISTER ---
 with tab3:
     with st.form("reg_form", clear_on_submit=True):
-        st.write("Example IDs: 2311029, 1911029")
-        f_sid = st.text_input("Student ID (at least 7 digits)")
+        f_sid = st.text_input("Student ID")
         f_name = st.text_input("Full Name")
         f_bg = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
         f_phone = st.text_input("Phone Number")
@@ -101,29 +101,27 @@ with tab3:
         has_donated = st.radio("Donated blood before?", ["No, never", "Yes"])
         f_last_picker = st.date_input("Last donation date")
         
-        if st.form_submit_button("Submit to Permanent Database"):
+        if st.form_submit_button("Submit"):
             if len(f_sid) >= 7 and f_name and f_phone:
                 final_date = str(f_last_picker) if has_donated == "Yes" else "Never"
                 
-                new_entry = pd.DataFrame([{
-                    "sid": str(f_sid), 
-                    "name": f_name, 
-                    "bg": f_bg, 
-                    "phone": f_phone, 
-                    "allergies": f_all, 
-                    "history": f_his, 
-                    "last_donation": final_date
+                # Update logic
+                new_row = pd.DataFrame([{
+                    "sid": str(f_sid), "name": f_name, "bg": f_bg, 
+                    "phone": f_phone, "allergies": f_all, 
+                    "history": f_his, "last_donation": final_date
                 }])
                 
-                # Remove old entry if updating, then add new one
                 if not df.empty:
-                    df = df[df['sid'].astype(str) != str(f_sid)]
+                    updated_df = pd.concat([df[df['sid'].astype(str) != str(f_sid)], new_row], ignore_index=True)
+                else:
+                    updated_df = new_row
                 
-                updated_df = pd.concat([df, new_entry], ignore_index=True)
-                
-                # Push back to Google Sheets
-                conn.update(data=updated_df)
-                st.success(f"Record for {f_name} is now saved FOREVER in Google Sheets!")
-                st.balloons()
-                st.rerun()
-            else: st.error("Please fill in ID (7+ digits), Name, and Phone.")
+                try:
+                    conn.update(data=updated_df)
+                    st.toast("Success! Record updated.") # Toast is smaller/cleaner than the big green bar
+                    st.rerun()
+                except:
+                    st.error("Error saving to Sheet. Check your connection.")
+            else:
+                st.error("Fill ID, Name, and Phone.")
