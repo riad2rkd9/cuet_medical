@@ -12,17 +12,17 @@ SENDER_PASSWORD = "raluwzarunwirgjms"
 st.set_page_config(page_title="CUET Medical Portal", page_icon="🏥")
 
 # --- GOOGLE SHEETS CONNECTION ---
-# Uses the secrets you saved in the Streamlit Dashboard
+# This connection relies on the [connections.gsheets] section in your Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     try:
-        # ttl=0 ensures we always get the newest data from the sheet
+        # ttl=0 forces the app to fetch fresh data every time
         return conn.read(ttl=0)
-    except:
-        return pd.DataFrame()
+    except Exception:
+        # Return an empty DataFrame with correct headers if the sheet is unreadable
+        return pd.DataFrame(columns=["sid", "name", "bg", "phone", "allergies", "history", "last_donation"])
 
-# Fetch data silently at start
 df = get_data()
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
@@ -69,13 +69,11 @@ with tab2:
     receiver_contact = st.text_input("Enter your phone number for donors to call:")
     
     if not df.empty:
-        # Match donors by blood group
         donors = df[df['bg'] == target_bg]
         if not donors.empty:
             for _, row in donors.iterrows():
                 eligible = True
                 d_date = str(row['last_donation'])
-                # Basic 120-day eligibility check
                 if d_date != "Never":
                     try:
                         if datetime.now() - datetime.strptime(d_date, "%Y-%m-%d") < timedelta(days=120):
@@ -108,11 +106,11 @@ with tab3:
         has_donated = st.radio("Donated blood before?", ["No, never", "Yes"])
         f_last_picker = st.date_input("Last donation date")
         
-        if st.form_submit_button("Submit"):
+        if st.form_submit_button("Submit to Permanent Database"):
             if f_sid and f_name and f_phone:
                 final_date = str(f_last_picker) if has_donated == "Yes" else "Never"
                 
-                # New entry must match lowercase headers in Sheet
+                # New entry - column names MUST match your sheet headers EXACTLY
                 new_row = pd.DataFrame([{
                     "sid": str(f_sid), 
                     "name": f_name, 
@@ -123,17 +121,22 @@ with tab3:
                     "last_donation": final_date
                 }])
                 
-                # Update existing or append new
-                if not df.empty:
-                    updated_df = pd.concat([df[df['sid'].astype(str) != str(f_sid)], new_row], ignore_index=True)
-                else:
-                    updated_df = new_row
-                
                 try:
+                    # Refresh data before update to avoid overwriting others
+                    current_df = conn.read(ttl=0)
+                    
+                    if current_df is not None and not current_df.empty:
+                        # Remove existing record with same ID then add new one
+                        updated_df = pd.concat([current_df[current_df['sid'].astype(str) != str(f_sid)], new_row], ignore_index=True)
+                    else:
+                        updated_df = new_row
+                    
+                    # Push update to Google Sheets
                     conn.update(data=updated_df)
-                    st.toast("✅ Success! Record updated.") 
+                    st.success("✅ Successfully registered!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error saving: {e}")
+                    # If this still shows "Public Spreadsheet", your Secrets are not set up with triple quotes
+                    st.error(f"Save failed: {e}")
             else:
-                st.error("Please fill in ID, Name, and Phone Number.")
+                st.error("Please fill in Student ID, Name, and Phone Number.")
