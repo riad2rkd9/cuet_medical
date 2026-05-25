@@ -57,7 +57,7 @@ tab1, tab2, tab3 = st.tabs(["🚨 Patient Search", "🩸 Find Donors", "📝 Reg
 
 # --- TAB 1: PATIENT SEARCH ---
 with tab1:
-    st.subheader("Search Patient Records")
+    st.subheader("Search Student Records")
     sid_query = st.text_input("Enter Student ID", key="search_input").strip()
     if sid_query:
         if not df.empty:
@@ -86,10 +86,10 @@ with tab2:
             for _, row in donors.iterrows():
                 clean_sid = row['sid']
                 st.write(f"**{row['name']}** (ID: {clean_sid})")
-                if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
+                if st.button(f"E-mail {clean_sid}", key=f"mail_{clean_sid}"):
                     if receiver_phone:
                         # Fixed domain to studnet.cuet.ac.bd
-                        target_mail = f"u{clean_sid}@studnet.cuet.ac.bd"
+                        target_mail = f"u{clean_sid}@student.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
                             st.success(f"Emergency Alert sent to {target_mail}")
                     else: st.error("Phone required!")
