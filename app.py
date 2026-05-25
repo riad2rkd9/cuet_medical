@@ -17,6 +17,7 @@ def get_data():
     try:
         data = conn.read(ttl=0)
         if data is not None and not data.empty:
+            # FIX SID & PHONE formatting
             data['sid'] = data['sid'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             data['phone'] = data['phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             data['phone'] = data['phone'].apply(lambda x: '0' + x if not x.startswith('0') and x != 'nan' else x)
@@ -29,8 +30,15 @@ df = get_data()
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
-    msg.set_content(f"Dear {donor_name},\n\nURGENT: A patient needs {blood_group} blood. Please contact: {receiver_phone}")
-    msg['Subject'] = f"🚨 CUET Blood Request: {blood_group}"
+    # Updated to match the exact format in your screenshot
+    email_body = (
+        f"Dear {donor_name},\n\n"
+        f"This is an EMERGENCY blood request from CUET Medical Center.\n\n"
+        f"A patient urgently needs {blood_group} blood. Please contact the receiver at: {receiver_phone}\n\n"
+        f"- CUET Medical Team"
+    )
+    msg.set_content(email_body)
+    msg['Subject'] = f"🚨 URGENT: {blood_group} Blood Needed"
     msg['From'] = SENDER_EMAIL
     msg['To'] = to_email
     try:
@@ -78,23 +86,22 @@ with tab2:
             for _, row in donors.iterrows():
                 clean_sid = row['sid']
                 st.write(f"**{row['name']}** (ID: {clean_sid})")
-                if st.button(f"E-mail {clean_sid}", key=f"mail_{clean_sid}"):
+                if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
                     if receiver_phone:
-                        target_mail = f"u{clean_sid}@student.cuet.ac.bd"
+                        # Fixed domain to studnet.cuet.ac.bd
+                        target_mail = f"u{clean_sid}@studnet.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
-                            st.success(f"Mail sent to {target_mail}")
+                            st.success(f"Emergency Alert sent to {target_mail}")
                     else: st.error("Phone required!")
 
 # --- TAB 3: REGISTER/UPDATE ---
 with tab3:
     st.subheader("Update Your Profile")
     
-    # FIX: Move the toggle OUTSIDE the form so it reruns the page when changed
+    # MOVED OUTSIDE FOR INSTANT DATE BAR: This fixes the "disturbing" date bar issue
     has_donated = st.radio("Have you donated blood before?", ["No", "Yes"], horizontal=True)
     
-    # Variable to hold the final date string
     f_date = "Never"
-    
     with st.form("registration_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -106,13 +113,11 @@ with tab3:
             f_all = st.text_area("Allergies", "None")
             f_his = st.text_area("Medical History", "None")
         
-        # If user picked "Yes" above, show the date input INSIDE the form
         if has_donated == "Yes":
             final_date_val = st.date_input("Select Last Donation Date")
             f_date = str(final_date_val)
 
         submitted = st.form_submit_button("Submit to Database")
-        
         if submitted:
             if f_sid and f_name:
                 new_row = pd.DataFrame([{
