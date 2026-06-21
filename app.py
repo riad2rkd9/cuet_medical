@@ -162,12 +162,12 @@ with tab2:
             for _, row in donors.iterrows():
                 clean_sid = row['sid']
                 st.write(f"**{row['name']}** (ID: {clean_sid})")
-                if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
+                if st.button(f"E-mail {clean_sid}", key=f"mail_{clean_sid}"):
                     if receiver_phone:
                         # FIXED SUBDOMAIN: 'student' corrected to 'studnet' to match CUET institutional routing
                         target_mail = f"u{clean_sid}@student.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
-                            st.success(f"Emergency Alert sent to {target_mail}")
+                            st.success(f"E-mail sent to {target_mail}")
                     else: st.error("Phone required!")
 
 # --- TAB 3: REGISTER/UPDATE ---
