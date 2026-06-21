@@ -30,12 +30,45 @@ def get_data():
 
 df = get_data()
 
+# --- ENHANCED PASSPORT SIZE PHOTO CROPPER & COMPRESSOR ---
 def image_to_base64(uploaded_file):
     if uploaded_file is not None:
         img = Image.open(uploaded_file)
-        img.thumbnail((300, 300))
+        
+        # 1. Convert to RGB if image is PNG with alpha channel to prevent JPEG save crash
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+            
+        width, height = img.size
+        
+        # 2. Target passport aspect ratio (approx 3.5:4.5 -> 1 : 1.28)
+        target_ratio = 3.5 / 4.5
+        current_ratio = width / height
+        
+        # 3. Dynamic Center Crop bounding-box calculations
+        if current_ratio > target_ratio:
+            # Image is too wide, crop left and right edges
+            new_width = int(target_ratio * height)
+            left = (width - new_width) / 2
+            top = 0
+            right = left + new_width
+            bottom = height
+        else:
+            # Image is too tall, crop top and bottom edges
+            new_height = int(width / target_ratio)
+            left = 0
+            top = (height - new_height) / 2
+            right = width
+            bottom = top + new_height
+            
+        img_cropped = img.crop((left, top, right, bottom))
+        
+        # 4. Resize to crisp, web-optimized passport resolution (413x531 px)
+        img_passport = img_cropped.resize((413, 531), Image.Resampling.LANCZOS)
+        
+        # 5. Compress and convert to Base64 String
         buffer = BytesIO()
-        img.save(buffer, format="JPEG")
+        img_passport.save(buffer, format="JPEG", quality=85) # High compression, low file weight
         return base64.b64encode(buffer.getvalue()).decode()
     return "None"
 
@@ -76,13 +109,15 @@ with tab1:
                 row = result.iloc[0]
                 st.success(f"### Profile Found: {row['name']}")
                 
-                c_photo, c1, c2 = st.columns([1, 2, 2])
+                # Setup specific width ratio for the layout columns
+                c_photo, c1, c2 = st.columns([1.2, 2, 2])
                 
                 with c_photo:
                     if 'photo' in row and row['photo'] != "None" and row['photo'] != "":
                         try:
                             img_data = base64.b64decode(row['photo'])
-                            st.image(BytesIO(img_data), caption="Student Photo", use_container_width=True)
+                            # Displaying with passport bounds
+                            st.image(BytesIO(img_data), caption="Official Passport Photo", width=180)
                         except:
                             st.warning("No photo available")
                     else:
@@ -92,7 +127,6 @@ with tab1:
                     st.metric("Blood Group", row['bg'])
                     st.write(f"**Phone:** {row['phone']}")
                     if 'weight' in row and row['weight'] != "None":
-                        # Display both cm and a calculated feet/inch view for readability
                         try:
                             total_cm = float(row['height'])
                             total_inches = total_cm / 2.54
@@ -130,7 +164,7 @@ with tab2:
                             st.success(f"Emergency Alert sent to {target_mail}")
                     else: st.error("Phone required!")
 
-# --- TAB 3: REGISTER/UPDATE (FEET/INCH INPUT CONVERSION) ---
+# --- TAB 3: REGISTER/UPDATE ---
 with tab3:
     st.subheader("Update Your Profile")
     has_donated = st.radio("Have you donated blood before?", ["No", "Yes"], horizontal=True)
@@ -150,19 +184,18 @@ with tab3:
             sc1, sc2 = st.columns(2)
             with sc1:
                 f_weight = st.number_input("Weight (kg)", min_value=10.0, max_value=200.0, value=60.0)
-                f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=120)
             with sc2:
-                # Splitting height into separate Feet and Inch dropdown selectors
                 h_col1, h_col2 = st.columns(2)
                 with h_col1:
-                    f_feet = st.selectbox("Height (Feet)", list(range(3, 9)), index=2) # Defaults to 5 ft
+                    f_feet = st.selectbox("Height (Feet)", list(range(3, 9)), index=2)
                 with h_col2:
-                    f_inches = st.selectbox("Inches", list(range(0, 12)), index=5) # Defaults to 5 in
+                    f_inches = st.selectbox("Inches", list(range(0, 12)), index=5)
                 
                 f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=120, key="reg_sys")
                 f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=80)
         
-        uploaded_photo = st.file_uploader("Upload Profile Picture (JPG/PNG)", type=["jpg", "jpeg", "png"])
+        # Image entry logic will auto-compile down to passport format 
+        uploaded_photo = st.file_uploader("Upload Profile Picture (Any dimensions - Auto-crops to Passport Size)", type=["jpg", "jpeg", "png"])
         
         if has_donated == "Yes":
             final_date_val = st.date_input("Select Last Donation Date")
@@ -173,7 +206,6 @@ with tab3:
             if f_sid and f_name:
                 photo_encoded = image_to_base64(uploaded_photo)
                 
-                # Formula: Convert Feet and Inches directly to standard Centimeters for saving
                 total_inches_calc = (f_feet * 12) + f_inches
                 calculated_cm = total_inches_calc * 2.54
                 
@@ -194,7 +226,7 @@ with tab3:
             else:
                 st.error("Please fill ID and Name.")
 
-# --- TAB 4: HEALTH INDEX CALCULATOR (WITH FEET/INCH INPUT) ---
+# --- TAB 4: AUTOMATED HEALTH INDEX CALCULATOR ---
 with tab4:
     st.subheader("📊 Instant Clinical Index Evaluator")
     st.write("Calculate Body Mass Index (BMI) and Blood Pressure categories instantly using automated medical validation boundaries.")
@@ -205,7 +237,6 @@ with tab4:
         st.markdown("### 🏋️ BMI Calculator")
         c_w = st.number_input("Current Weight (kg)", min_value=10.0, value=70.0, key="bmi_w")
         
-        # Split layout for calculator height inputs
         bmi_h_col1, bmi_h_col2 = st.columns(2)
         with bmi_h_col1:
             c_feet = st.selectbox("Height (Feet)", list(range(3, 9)), index=2, key="calc_ft")
@@ -213,7 +244,6 @@ with tab4:
             c_inches = st.selectbox("Inches", list(range(0, 12)), index=7, key="calc_in")
         
         if st.button("Evaluate BMI"):
-            # Conversion: (Feet * 12 + Inches) * 2.54 / 100 to get meters
             total_inches = (c_feet * 12) + c_inches
             height_meters = (total_inches * 2.54) / 100.0
             bmi = c_w / (height_meters ** 2)
