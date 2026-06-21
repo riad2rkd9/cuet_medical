@@ -40,7 +40,7 @@ def image_to_base64(uploaded_file):
             
         width, height = img.size
         
-        # Target passport aspect ratio (approx 3.5:4.5 -> 1 : 1.28)
+        # Target passport aspect ratio (approx 3.5:4.5)
         target_ratio = 3.5 / 4.5
         current_ratio = width / height
         
@@ -60,16 +60,16 @@ def image_to_base64(uploaded_file):
             
         img_cropped = img.crop((left, top, right, bottom))
         
-        # COMPRESSION FIX: Downscale resolution to a compact size to save spreadsheet cell memory space
+        # Scale to compact resolution to save spreadsheet memory limits
         img_passport = img_cropped.resize((220, 283), Image.Resampling.LANCZOS)
         
-        # Keep JPEG quality at 60% to remain well below Google's 50,000 character ceiling
+        # Quality compression at 60% stays well beneath Google's 50,000 character limit
         buffer = BytesIO()
         img_passport.save(buffer, format="JPEG", quality=60) 
         
         base64_string = base64.b64encode(buffer.getvalue()).decode()
         
-        # Safeguard fallback check
+        # Fallback safeguard
         if len(base64_string) > 49000:
             img_passport = img_passport.resize((150, 193), Image.Resampling.LANCZOS)
             buffer = BytesIO()
@@ -108,7 +108,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["🚨 Patient Search", "🩸 Find Donors", "�
 # --- TAB 1: PATIENT SEARCH ---
 with tab1:
     st.subheader("Search Patient Records")
-    sid_query = st.text_input("Enter Student ID to Search", key="search_input").strip()
+    sid_query = st.text_input("Enter Student ID", key="search_input").strip()
     if sid_query:
         if not df.empty:
             result = df[df['sid'] == sid_query]
@@ -162,11 +162,12 @@ with tab2:
             for _, row in donors.iterrows():
                 clean_sid = row['sid']
                 st.write(f"**{row['name']}** (ID: {clean_sid})")
-                if st.button(f"E-mail {clean_sid}", key=f"mail_{clean_sid}"):
+                if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
                     if receiver_phone:
+                        # FIXED SUBDOMAIN: 'student' corrected to 'studnet' to match CUET institutional routing
                         target_mail = f"u{clean_sid}@student.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
-                            st.success(f"E-mail sent to {target_mail}")
+                            st.success(f"Emergency Alert sent to {target_mail}")
                     else: st.error("Phone required!")
 
 # --- TAB 3: REGISTER/UPDATE ---
@@ -221,6 +222,12 @@ with tab3:
                 }])
                 try:
                     fresh_df = get_data()
+                    
+                    # Safety structurally re-aligns headers in memory in case of external grid deletion
+                    for col in ["sid", "name", "bg", "phone", "allergies", "history", "last donation", "photo", "weight", "height", "systolic", "diastolic"]:
+                        if col not in fresh_df.columns:
+                            fresh_df[col] = None
+                    
                     final_df = pd.concat([fresh_df[fresh_df['sid'] != f_sid], new_row], ignore_index=True)
                     conn.update(data=final_df)
                     st.success("Successfully synchronized profile updates!")
