@@ -20,23 +20,19 @@ def get_data():
     try:
         data = conn.read(ttl=0)
         if data is not None and not data.empty:
-            # Clean floating string points and trailing spaces
             data['sid'] = data['sid'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             data['phone'] = data['phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             data['phone'] = data['phone'].apply(lambda x: '0' + x if not x.startswith('0') and x != 'nan' else x)
             data = data.fillna("None").replace("nan", "None")
         return data
     except Exception:
-        # Schema definition matching database tracking expectations
         return pd.DataFrame(columns=["sid", "name", "bg", "phone", "allergies", "history", "last donation", "photo", "weight", "height", "systolic", "diastolic"])
 
 df = get_data()
 
-# Helper function to convert uploaded image file to a base64 string
 def image_to_base64(uploaded_file):
     if uploaded_file is not None:
         img = Image.open(uploaded_file)
-        # Resize to maintain cloud cell structural sizing efficiency
         img.thumbnail((300, 300))
         buffer = BytesIO()
         img.save(buffer, format="JPEG")
@@ -45,7 +41,6 @@ def image_to_base64(uploaded_file):
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
-    # Explicit message matching formal template requirement
     email_body = (
         f"Dear {donor_name},\n\n"
         f"This is an EMERGENCY blood request from CUET Medical Center.\n\n"
@@ -70,10 +65,10 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
 st.title("🏥 CUET Student Medical Portal")
 tab1, tab2, tab3, tab4 = st.tabs(["🚨 Patient Search", "🩸 Find Donors", "📝 Register/Update", "📊 Health Index Calculator"])
 
-# --- TAB 1: PATIENT SEARCH (WITH PHOTO DISPLAY) ---
+# --- TAB 1: PATIENT SEARCH ---
 with tab1:
     st.subheader("Search Patient Records")
-    sid_query = st.text_input("Enter Student ID to Search", key="search_input").strip()
+    sid_query = st.text_input("Enter Student ID", key="search_input").strip()
     if sid_query:
         if not df.empty:
             result = df[df['sid'] == sid_query]
@@ -81,7 +76,6 @@ with tab1:
                 row = result.iloc[0]
                 st.success(f"### Profile Found: {row['name']}")
                 
-                # Dynamic layout to cleanly present image metrics
                 c_photo, c1, c2 = st.columns([1, 2, 2])
                 
                 with c_photo:
@@ -98,7 +92,16 @@ with tab1:
                     st.metric("Blood Group", row['bg'])
                     st.write(f"**Phone:** {row['phone']}")
                     if 'weight' in row and row['weight'] != "None":
-                        st.write(f"**Weight:** {row['weight']} kg | **Height:** {row['height']} cm")
+                        # Display both cm and a calculated feet/inch view for readability
+                        try:
+                            total_cm = float(row['height'])
+                            total_inches = total_cm / 2.54
+                            ft = int(total_inches // 12)
+                            inch = int(round(total_inches % 12))
+                            st.write(f"**Weight:** {row['weight']} kg")
+                            st.write(f"**Height:** {ft} ft {inch} in ({total_cm:.1f} cm)")
+                        except:
+                            st.write(f"**Weight:** {row['weight']} kg | **Height:** {row['height']} cm")
                 
                 with c2:
                     st.error(f"**Allergies:** {row['allergies']}")
@@ -120,18 +123,16 @@ with tab2:
             for _, row in donors.iterrows():
                 clean_sid = row['sid']
                 st.write(f"**{row['name']}** (ID: {clean_sid})")
-                if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
+                if st.button(f"E-mail {clean_sid}", key=f"mail_{clean_sid}"):
                     if receiver_phone:
-                        target_mail = f"u{clean_sid}@studnet.cuet.ac.bd"
+                        target_mail = f"u{clean_sid}@student.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
                             st.success(f"Emergency Alert sent to {target_mail}")
                     else: st.error("Phone required!")
 
-# --- TAB 3: REGISTER/UPDATE (WITH IMAGE ACQUISITION) ---
+# --- TAB 3: REGISTER/UPDATE (FEET/INCH INPUT CONVERSION) ---
 with tab3:
     st.subheader("Update Your Profile")
-    
-    # State tracking outside container keeps configuration reactive
     has_donated = st.radio("Have you donated blood before?", ["No", "Yes"], horizontal=True)
     
     f_date = "Never"
@@ -151,7 +152,14 @@ with tab3:
                 f_weight = st.number_input("Weight (kg)", min_value=10.0, max_value=200.0, value=60.0)
                 f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=120)
             with sc2:
-                f_height = st.number_input("Height (cm)", min_value=50.0, max_value=250.0, value=165.0)
+                # Splitting height into separate Feet and Inch dropdown selectors
+                h_col1, h_col2 = st.columns(2)
+                with h_col1:
+                    f_feet = st.selectbox("Height (Feet)", list(range(3, 9)), index=2) # Defaults to 5 ft
+                with h_col2:
+                    f_inches = st.selectbox("Inches", list(range(0, 12)), index=5) # Defaults to 5 in
+                
+                f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=120, key="reg_sys")
                 f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=80)
         
         uploaded_photo = st.file_uploader("Upload Profile Picture (JPG/PNG)", type=["jpg", "jpeg", "png"])
@@ -165,10 +173,14 @@ with tab3:
             if f_sid and f_name:
                 photo_encoded = image_to_base64(uploaded_photo)
                 
+                # Formula: Convert Feet and Inches directly to standard Centimeters for saving
+                total_inches_calc = (f_feet * 12) + f_inches
+                calculated_cm = total_inches_calc * 2.54
+                
                 new_row = pd.DataFrame([{
                     "sid": f_sid, "name": f_name, "bg": f_bg, "phone": f_phone,
                     "allergies": f_all, "history": f_his, "last donation": f_date,
-                    "photo": photo_encoded, "weight": str(f_weight), "height": str(f_height),
+                    "photo": photo_encoded, "weight": str(f_weight), "height": f"{calculated_cm:.2f}",
                     "systolic": str(f_sys), "diastolic": str(f_dia)
                 }])
                 try:
@@ -182,7 +194,7 @@ with tab3:
             else:
                 st.error("Please fill ID and Name.")
 
-# --- TAB 4: AUTOMATED HEALTH INDEX CALCULATOR ---
+# --- TAB 4: HEALTH INDEX CALCULATOR (WITH FEET/INCH INPUT) ---
 with tab4:
     st.subheader("📊 Instant Clinical Index Evaluator")
     st.write("Calculate Body Mass Index (BMI) and Blood Pressure categories instantly using automated medical validation boundaries.")
@@ -192,10 +204,18 @@ with tab4:
     with calc_col1:
         st.markdown("### 🏋️ BMI Calculator")
         c_w = st.number_input("Current Weight (kg)", min_value=10.0, value=70.0, key="bmi_w")
-        c_h = st.number_input("Current Height (cm)", min_value=50.0, value=170.0, key="bmi_h")
+        
+        # Split layout for calculator height inputs
+        bmi_h_col1, bmi_h_col2 = st.columns(2)
+        with bmi_h_col1:
+            c_feet = st.selectbox("Height (Feet)", list(range(3, 9)), index=2, key="calc_ft")
+        with bmi_h_col2:
+            c_inches = st.selectbox("Inches", list(range(0, 12)), index=7, key="calc_in")
         
         if st.button("Evaluate BMI"):
-            height_meters = c_h / 100.0
+            # Conversion: (Feet * 12 + Inches) * 2.54 / 100 to get meters
+            total_inches = (c_feet * 12) + c_inches
+            height_meters = (total_inches * 2.54) / 100.0
             bmi = c_w / (height_meters ** 2)
             st.metric("Your Calculated BMI", f"{bmi:.2f}")
             
