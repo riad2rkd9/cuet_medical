@@ -199,7 +199,7 @@ with tab3:
                 f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=120, key="reg_sys")
                 f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=80)
         
-        uploaded_photo = st.file_uploader("Upload Profile Picture (Any dimensions - Auto-crops to Passport Size)", type=["jpg", "jpeg", "png"])
+        uploaded_photo = st.file_uploader("Upload Profile Picture", type=["jpg", "jpeg", "png"])
         
         if has_donated == "Yes":
             final_date_val = st.date_input("Select Last Donation Date")
