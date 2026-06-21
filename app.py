@@ -3,7 +3,6 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import smtplib
 from email.message import EmailMessage
-import安全 as sa  # Using standard base64 for image encoding
 import base64
 from io import BytesIO
 from PIL import Image
@@ -21,13 +20,14 @@ def get_data():
     try:
         data = conn.read(ttl=0)
         if data is not None and not data.empty:
+            # Clean floating string points and trailing spaces
             data['sid'] = data['sid'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             data['phone'] = data['phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-            data['phone'] = data['phone'].apply(lambda x: '0' + x if not x.startswith('0' ) and x != 'nan' else x)
+            data['phone'] = data['phone'].apply(lambda x: '0' + x if not x.startswith('0') and x != 'nan' else x)
             data = data.fillna("None").replace("nan", "None")
         return data
     except Exception:
-        # Added 'photo', 'weight', 'height', 'systolic', 'diastolic' columns to the schema
+        # Schema definition matching database tracking expectations
         return pd.DataFrame(columns=["sid", "name", "bg", "phone", "allergies", "history", "last donation", "photo", "weight", "height", "systolic", "diastolic"])
 
 df = get_data()
@@ -36,7 +36,7 @@ df = get_data()
 def image_to_base64(uploaded_file):
     if uploaded_file is not None:
         img = Image.open(uploaded_file)
-        # Resize slightly to avoid making the Google Sheet cell too massive
+        # Resize to maintain cloud cell structural sizing efficiency
         img.thumbnail((300, 300))
         buffer = BytesIO()
         img.save(buffer, format="JPEG")
@@ -45,6 +45,7 @@ def image_to_base64(uploaded_file):
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
     msg = EmailMessage()
+    # Explicit message matching formal template requirement
     email_body = (
         f"Dear {donor_name},\n\n"
         f"This is an EMERGENCY blood request from CUET Medical Center.\n\n"
@@ -67,10 +68,9 @@ def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
         return False
 
 st.title("🏥 CUET Student Medical Portal")
-# Added a 4th tab for Health Index tools
 tab1, tab2, tab3, tab4 = st.tabs(["🚨 Patient Search", "🩸 Find Donors", "📝 Register/Update", "📊 Health Index Calculator"])
 
-# --- TAB 1: PATIENT SEARCH (WITH PHOTO & LIVE HEALTH METRICS) ---
+# --- TAB 1: PATIENT SEARCH (WITH PHOTO DISPLAY) ---
 with tab1:
     st.subheader("Search Patient Records")
     sid_query = st.text_input("Enter Student ID to Search", key="search_input").strip()
@@ -81,11 +81,10 @@ with tab1:
                 row = result.iloc[0]
                 st.success(f"### Profile Found: {row['name']}")
                 
-                # Split layout into 3 columns to neatly show photo and details
+                # Dynamic layout to cleanly present image metrics
                 c_photo, c1, c2 = st.columns([1, 2, 2])
                 
                 with c_photo:
-                    # Check and display photo from Base64 string
                     if 'photo' in row and row['photo'] != "None" and row['photo'] != "":
                         try:
                             img_data = base64.b64decode(row['photo'])
@@ -114,7 +113,7 @@ with tab1:
 # --- TAB 2: FIND DONORS ---
 with tab2:
     target_bg = st.selectbox("Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
-    receiver_phone = st.text_input("Your Contact Number:")
+    receiver_phone = st.text_input("Your Contact Number:", key="donor_contact")
     if not df.empty:
         donors = df[df['bg'] == target_bg]
         if not donors.empty:
@@ -123,15 +122,16 @@ with tab2:
                 st.write(f"**{row['name']}** (ID: {clean_sid})")
                 if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
                     if receiver_phone:
-                        target_mail = f"u{clean_sid}@student.cuet.ac.bd"
+                        target_mail = f"u{clean_sid}@studnet.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
                             st.success(f"Emergency Alert sent to {target_mail}")
                     else: st.error("Phone required!")
 
-# --- TAB 3: REGISTER/UPDATE (WITH PHOTO UPLOAD & HEALTH STATS) ---
+# --- TAB 3: REGISTER/UPDATE (WITH IMAGE ACQUISITION) ---
 with tab3:
     st.subheader("Update Your Profile")
     
+    # State tracking outside container keeps configuration reactive
     has_donated = st.radio("Have you donated blood before?", ["No", "Yes"], horizontal=True)
     
     f_date = "Never"
@@ -146,7 +146,6 @@ with tab3:
             f_all = st.text_area("Allergies", "None")
             f_his = st.text_area("Medical History", "None")
             
-            # Sub-columns inside form for physical attributes
             sc1, sc2 = st.columns(2)
             with sc1:
                 f_weight = st.number_input("Weight (kg)", min_value=10.0, max_value=200.0, value=60.0)
@@ -155,7 +154,6 @@ with tab3:
                 f_height = st.number_input("Height (cm)", min_value=50.0, max_value=250.0, value=165.0)
                 f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=80)
         
-        # New Feature: Profile Photo Uploader
         uploaded_photo = st.file_uploader("Upload Profile Picture (JPG/PNG)", type=["jpg", "jpeg", "png"])
         
         if has_donated == "Yes":
@@ -165,7 +163,6 @@ with tab3:
         submitted = st.form_submit_button("Submit to Database")
         if submitted:
             if f_sid and f_name:
-                # Process the photo into text string strings
                 photo_encoded = image_to_base64(uploaded_photo)
                 
                 new_row = pd.DataFrame([{
@@ -178,10 +175,10 @@ with tab3:
                     fresh_df = get_data()
                     final_df = pd.concat([fresh_df[fresh_df['sid'] != f_sid], new_row], ignore_index=True)
                     conn.update(data=final_df)
-                    st.success("Successfully updated registration matrix!")
+                    st.success("Successfully synchronized profile updates!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error saving data: {e}")
+                    st.error(f"Database write error: {e}")
             else:
                 st.error("Please fill ID and Name.")
 
