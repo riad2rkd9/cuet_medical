@@ -30,31 +30,28 @@ def get_data():
 
 df = get_data()
 
-# --- ENHANCED PASSPORT SIZE PHOTO CROPPER & COMPRESSOR ---
+# --- OPTIMIZED PASSPORT SIZE PHOTO CROPPER & CELL COMPRESSOR ---
 def image_to_base64(uploaded_file):
     if uploaded_file is not None:
         img = Image.open(uploaded_file)
         
-        # 1. Convert to RGB if image is PNG with alpha channel to prevent JPEG save crash
         if img.mode in ('RGBA', 'P'):
             img = img.convert('RGB')
             
         width, height = img.size
         
-        # 2. Target passport aspect ratio (approx 3.5:4.5 -> 1 : 1.28)
+        # Target passport aspect ratio (approx 3.5:4.5 -> 1 : 1.28)
         target_ratio = 3.5 / 4.5
         current_ratio = width / height
         
-        # 3. Dynamic Center Crop bounding-box calculations
+        # Center Crop logic
         if current_ratio > target_ratio:
-            # Image is too wide, crop left and right edges
             new_width = int(target_ratio * height)
             left = (width - new_width) / 2
             top = 0
             right = left + new_width
             bottom = height
         else:
-            # Image is too tall, crop top and bottom edges
             new_height = int(width / target_ratio)
             left = 0
             top = (height - new_height) / 2
@@ -63,13 +60,23 @@ def image_to_base64(uploaded_file):
             
         img_cropped = img.crop((left, top, right, bottom))
         
-        # 4. Resize to crisp, web-optimized passport resolution (413x531 px)
-        img_passport = img_cropped.resize((413, 531), Image.Resampling.LANCZOS)
+        # COMPRESSION FIX: Downscale resolution to a compact size to save spreadsheet cell memory space
+        img_passport = img_cropped.resize((220, 283), Image.Resampling.LANCZOS)
         
-        # 5. Compress and convert to Base64 String
+        # Keep JPEG quality at 60% to remain well below Google's 50,000 character ceiling
         buffer = BytesIO()
-        img_passport.save(buffer, format="JPEG", quality=85) # High compression, low file weight
-        return base64.b64encode(buffer.getvalue()).decode()
+        img_passport.save(buffer, format="JPEG", quality=60) 
+        
+        base64_string = base64.b64encode(buffer.getvalue()).decode()
+        
+        # Safeguard fallback check
+        if len(base64_string) > 49000:
+            img_passport = img_passport.resize((150, 193), Image.Resampling.LANCZOS)
+            buffer = BytesIO()
+            img_passport.save(buffer, format="JPEG", quality=50)
+            base64_string = base64.b64encode(buffer.getvalue()).decode()
+            
+        return base64_string
     return "None"
 
 def send_donor_email(to_email, donor_name, blood_group, receiver_phone):
@@ -101,7 +108,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["🚨 Patient Search", "🩸 Find Donors", "�
 # --- TAB 1: PATIENT SEARCH ---
 with tab1:
     st.subheader("Search Patient Records")
-    sid_query = st.text_input("Enter Student ID", key="search_input").strip()
+    sid_query = st.text_input("Enter Student ID to Search", key="search_input").strip()
     if sid_query:
         if not df.empty:
             result = df[df['sid'] == sid_query]
@@ -109,14 +116,12 @@ with tab1:
                 row = result.iloc[0]
                 st.success(f"### Profile Found: {row['name']}")
                 
-                # Setup specific width ratio for the layout columns
                 c_photo, c1, c2 = st.columns([1.2, 2, 2])
                 
                 with c_photo:
                     if 'photo' in row and row['photo'] != "None" and row['photo'] != "":
                         try:
                             img_data = base64.b64decode(row['photo'])
-                            # Displaying with passport bounds
                             st.image(BytesIO(img_data), caption="Photo", width=180)
                         except:
                             st.warning("No photo available")
@@ -161,7 +166,7 @@ with tab2:
                     if receiver_phone:
                         target_mail = f"u{clean_sid}@student.cuet.ac.bd"
                         if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
-                            st.success(f"Emergency Alert sent to {target_mail}")
+                            st.success(f"E-mail sent to {target_mail}")
                     else: st.error("Phone required!")
 
 # --- TAB 3: REGISTER/UPDATE ---
@@ -194,7 +199,6 @@ with tab3:
                 f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=120, key="reg_sys")
                 f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=80)
         
-        # Image entry logic will auto-compile down to passport format 
         uploaded_photo = st.file_uploader("Upload Profile Picture (Any dimensions - Auto-crops to Passport Size)", type=["jpg", "jpeg", "png"])
         
         if has_donated == "Yes":
