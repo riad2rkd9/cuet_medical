@@ -117,7 +117,7 @@ with tab1:
                         try:
                             img_data = base64.b64decode(row['photo'])
                             # Displaying with passport bounds
-                            st.image(BytesIO(img_data), caption="Official Passport Photo", width=180)
+                            st.image(BytesIO(img_data), caption="Photo", width=180)
                         except:
                             st.warning("No photo available")
                     else:
