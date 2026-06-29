@@ -202,9 +202,9 @@ with tab2:
                 
                 with col_info:
                     if is_eligible:
-                        st.write(f"🟢 {row['name']} (ID: {clean_sid}) — Availabe for Donating")
+                        st.write(f"🟢 {row['name']} (ID: {clean_sid}) — Availabe to Donate")
                     else:
-                        st.write(f"🔴 {row['name']} (ID: {clean_sid}) — *{deferral_reason}*")
+                        st.write(f"🔴 {row['name']} (ID: {clean_sid}) — {deferral_reason}")
                 
                 with col_action:
                     if is_eligible:
@@ -217,7 +217,7 @@ with tab2:
                             else:
                                 st.error("Phone required!")
                     else:
-                        st.button(f"Blocked", key=f"blocked_{clean_sid}", disabled=True, help=deferral_reason)
+                        st.button(f"Not avaiable", key=f"blocked_{clean_sid}", disabled=True, help=deferral_reason)
                 st.markdown("---")
         else:
             st.info("No donors found with this blood group.")
