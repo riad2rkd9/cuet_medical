@@ -241,7 +241,7 @@ with tab3:
             
             sc1, sc2 = st.columns(2)
             with sc1:
-                f_weight = st.number_input("Weight (kg)", min_value=10.0, max_value=200.0, value=)
+                f_weight = st.number_input("Weight (kg)", min_value=10.0, max_value=200.0, value=60.0)
             with sc2:
                 h_col1, h_col2 = st.columns(2)
                 with h_col1:
@@ -250,7 +250,7 @@ with tab3:
                     f_inches = st.selectbox("Inches", list(range(0, 12)), index=5)
                 
                 f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=, key="reg_sys")
-                f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=)
+                f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=80)
         
         uploaded_photo = st.file_uploader("Upload Profile Picture", type=["jpg", "jpeg", "png"])
         
