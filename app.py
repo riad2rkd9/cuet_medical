@@ -181,7 +181,7 @@ with tab2:
                         if days_since_donation < 90:
                             is_eligible = False
                             days_left = 90 - days_since_donation
-                            deferral_reason = f"⏳ Deferral: {days_left} Days Left"
+                            deferral_reason = f"⏳ Recently Donated-{days_left} Days Left to donate"
                     except Exception:
                         pass 
 
@@ -202,9 +202,9 @@ with tab2:
                 
                 with col_info:
                     if is_eligible:
-                        st.write(f"🟢 **{row['name']}** (ID: {clean_sid}) — Availabe for Donating")
+                        st.write(f"🟢 {row['name']} (ID: {clean_sid}) — Availabe for Donating")
                     else:
-                        st.write(f"🔴 **{row['name']}** (ID: {clean_sid}) — *{deferral_reason}*")
+                        st.write(f"🔴 {row['name']} (ID: {clean_sid}) — *{deferral_reason}*")
                 
                 with col_action:
                     if is_eligible:
