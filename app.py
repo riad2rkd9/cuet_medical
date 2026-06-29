@@ -249,7 +249,7 @@ with tab3:
                 with h_col2:
                     f_inches = st.selectbox("Inches", list(range(0, 12)), index=5)
                 
-                f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=, key="reg_sys")
+                f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=120, key="reg_sys")
                 f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=80)
         
         uploaded_photo = st.file_uploader("Upload Profile Picture", type=["jpg", "jpeg", "png"])
