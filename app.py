@@ -6,6 +6,7 @@ from email.message import EmailMessage
 import base64
 from io import BytesIO
 from PIL import Image
+from datetime import datetime
 
 # --- EMAIL SETTINGS ---
 SENDER_EMAIL = "ridwanbme23@gmail.com"
@@ -108,7 +109,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["🚨 Patient Search", "🩸 Find Donors", "�
 # --- TAB 1: PATIENT SEARCH ---
 with tab1:
     st.subheader("Search Patient Records")
-    sid_query = st.text_input("Enter Student ID", key="search_input").strip()
+    sid_query = st.text_input("Enter Student ID to Search", key="search_input").strip()
     if sid_query:
         if not df.empty:
             result = df[df['sid'] == sid_query]
@@ -122,7 +123,7 @@ with tab1:
                     if 'photo' in row and row['photo'] != "None" and row['photo'] != "":
                         try:
                             img_data = base64.b64decode(row['photo'])
-                            st.image(BytesIO(img_data), caption="Photo", width=180)
+                            st.image(BytesIO(img_data), caption="Official Passport Photo", width=180)
                         except:
                             st.warning("No photo available")
                     else:
@@ -156,19 +157,70 @@ with tab1:
 with tab2:
     target_bg = st.selectbox("Blood Group Needed", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"])
     receiver_phone = st.text_input("Your Contact Number:", key="donor_contact")
+    
     if not df.empty:
         donors = df[df['bg'] == target_bg]
         if not donors.empty:
+            st.write("### Available Donors Matching Criteria:")
+            
             for _, row in donors.iterrows():
                 clean_sid = row['sid']
-                st.write(f"**{row['name']}** (ID: {clean_sid})")
-                if st.button(f"E-mail {clean_sid}", key=f"mail_{clean_sid}"):
-                    if receiver_phone:
-                        # FIXED SUBDOMAIN: 'student' corrected to 'studnet' to match CUET institutional routing
-                        target_mail = f"u{clean_sid}@student.cuet.ac.bd"
-                        if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
-                            st.success(f"E-mail sent to {target_mail}")
-                    else: st.error("Phone required!")
+                donation_status = row['last donation']
+                
+                is_eligible = True
+                deferral_reason = ""
+                days_left = 0
+                
+                # 1. Check Timeline Eligibility (90-day rest rule)
+                if donation_status != "Never" and donation_status != "None":
+                    try:
+                        donation_date = datetime.strptime(donation_status, "%Y-%m-%d").date()
+                        today = datetime.now().date()
+                        days_since_donation = (today - donation_date).days
+                        
+                        if days_since_donation < 90:
+                            is_eligible = False
+                            days_left = 90 - days_since_donation
+                            deferral_reason = f"⏳ Deferral: {days_left} Days Left"
+                    except Exception:
+                        pass 
+
+                # 2. Check Clinical BP Safety Limits (Systolic: 90-180 | Diastolic: 50-100)
+                if is_eligible and 'systolic' in row and row['systolic'] != "None":
+                    try:
+                        sys_check = int(float(row['systolic']))
+                        dia_check = int(float(row['diastolic']))
+                        
+                        if sys_check < 90 or sys_check > 180 or dia_check < 50 or dia_check > 100:
+                            is_eligible = False
+                            deferral_reason = f"❌ Unsafe BP ({sys_check}/{dia_check})"
+                    except Exception:
+                        pass
+
+                # Render List Items Dynamically
+                col_info, col_action = st.columns([3, 1])
+                
+                with col_info:
+                    if is_eligible:
+                        st.write(f"🟢 **{row['name']}** (ID: {clean_sid}) — *Ready to Donate*")
+                    else:
+                        st.write(f"🔴 **{row['name']}** (ID: {clean_sid}) — *{deferral_reason}*")
+                
+                with col_action:
+                    if is_eligible:
+                        if st.button(f"Notify {clean_sid}", key=f"mail_{clean_sid}"):
+                            if receiver_phone:
+                                # Email address configured per request
+                                target_mail = f"u{clean_sid}@student.cuet.ac.bd"
+                                if send_donor_email(target_mail, row['name'], target_bg, receiver_phone):
+                                    st.success(f"Emergency Alert sent to {target_mail}")
+                            else:
+                                st.error("Phone required!")
+                    else:
+                        st.button(f"Blocked", key=f"blocked_{clean_sid}", disabled=True, help=deferral_reason)
+                st.markdown("---")
+        else:
+            st.info("No donors found with this blood group.")
 
 # --- TAB 3: REGISTER/UPDATE ---
 with tab3:
@@ -200,7 +252,7 @@ with tab3:
                 f_sys = st.number_input("Systolic BP (mmHg)", min_value=50, max_value=250, value=120, key="reg_sys")
                 f_dia = st.number_input("Diastolic BP (mmHg)", min_value=30, max_value=150, value=80)
         
-        uploaded_photo = st.file_uploader("Upload Profile Picture", type=["jpg", "jpeg", "png"])
+        uploaded_photo = st.file_uploader("Upload Profile Picture (Any dimensions - Auto-crops to Passport Size)", type=["jpg", "jpeg", "png"])
         
         if has_donated == "Yes":
             final_date_val = st.date_input("Select Last Donation Date")
@@ -210,7 +262,6 @@ with tab3:
         if submitted:
             if f_sid and f_name:
                 photo_encoded = image_to_base64(uploaded_photo)
-                
                 total_inches_calc = (f_feet * 12) + f_inches
                 calculated_cm = total_inches_calc * 2.54
                 
@@ -222,8 +273,6 @@ with tab3:
                 }])
                 try:
                     fresh_df = get_data()
-                    
-                    # Safety structurally re-aligns headers in memory in case of external grid deletion
                     for col in ["sid", "name", "bg", "phone", "allergies", "history", "last donation", "photo", "weight", "height", "systolic", "diastolic"]:
                         if col not in fresh_df.columns:
                             fresh_df[col] = None
