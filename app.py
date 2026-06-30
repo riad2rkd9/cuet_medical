@@ -202,9 +202,9 @@ with tab2:
                 
                 with col_info:
                     if is_eligible:
-                        st.write(f"🟢 {row['name']} (ID: {clean_sid}) — Available to Donate")
+                        st.write(f"{row['name']} (ID: {clean_sid}) — Available to Donate")
                     else:
-                        st.write(f"🔴 {row['name']} (ID: {clean_sid}) — {deferral_reason}")
+                        st.write(f"{row['name']} (ID: {clean_sid}) — {deferral_reason}")
                 
                 with col_action:
                     if is_eligible:
